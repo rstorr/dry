@@ -18,11 +18,11 @@ func (h *stackTasksScreenEventHandler) handle(event termbox.Event, f func(eventH
 	switch event.Key {
 	case termbox.KeyEsc:
 		f(viewsToHandlers[Stacks])
-		h.dry.ViewMode(Stacks)
+		h.dry.changeView(Stacks)
 	case termbox.KeyF1: //sort
 		h.widget.Sort()
 	case termbox.KeyF5: // refresh
-		h.dry.appmessage("Refreshing stack tasks list")
+		h.dry.message("Refreshing stack tasks list")
 		h.widget.Unmount()
 	case termbox.KeyEnter:
 		forwarder := newEventForwarder()
@@ -35,11 +35,11 @@ func (h *stackTasksScreenEventHandler) handle(event termbox.Event, f func(eventH
 					return h.dry.dockerDaemon.Task(id)
 				},
 				func() {
-					h.dry.ViewMode(StackTasks)
+					h.dry.changeView(StackTasks)
 					f(h)
 					refreshScreen()
 				})); err != nil {
-			h.dry.appmessage(
+			h.dry.message(
 				fmt.Sprintf("Error inspecting stack: %s", err.Error()))
 		}
 	default:

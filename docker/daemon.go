@@ -39,7 +39,7 @@ type DockerDaemon struct {
 	client    dockerAPI.APIClient //client used to to connect to the Docker daemon
 	s         ContainerStore
 	err       error // Errors, if any.
-	dockerEnv *Env
+	dockerEnv Env
 	version   *dockerTypes.Version
 	swarmMode bool
 	storeLock sync.RWMutex
@@ -70,13 +70,12 @@ func (daemon *DockerDaemon) DiskUsage() (dockerTypes.DiskUsage, error) {
 }
 
 //DockerEnv returns Docker-related environment variables
-func (daemon *DockerDaemon) DockerEnv() *Env {
+func (daemon *DockerDaemon) DockerEnv() Env {
 	return daemon.dockerEnv
 }
 
 // Events returns a channel to receive Docker events.
 func (daemon *DockerDaemon) Events() (<-chan dockerEvents.Message, chan<- struct{}, error) {
-
 	args := filters.NewArgs()
 
 	args.Add("scope", "local")

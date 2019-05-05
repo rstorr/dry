@@ -25,7 +25,7 @@ type ContainerDaemon interface {
 	SwarmAPI
 	ContainerRuntime
 	DiskUsage() (types.DiskUsage, error)
-	DockerEnv() *Env
+	DockerEnv() Env
 	Events() (<-chan events.Message, chan<- struct{}, error)
 	EventLog() *EventLog
 	Info() (types.Info, error)
@@ -51,6 +51,7 @@ type ContainerAPI interface {
 	StopContainer(id string) error
 }
 
+//ContainerRuntime is the subset of the Docker API to query container runtime information
 type ContainerRuntime interface {
 	StatsChannel(container *Container) (*StatsChannel, error)
 	Top(ctx context.Context, id string) (container.ContainerTopOKBody, error)

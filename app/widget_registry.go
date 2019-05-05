@@ -14,11 +14,12 @@ import (
 	"github.com/moncho/dry/ui/termui"
 )
 
-//widgetRegistry holds two sets of widgets:
-// * those registered in the the registry when it was created, that
-//   can be reused. These are the individually named widgets found on
-//   this struct.
-// * a list of widgets to be rendered on the next rendering.
+//widgetRegistry holds references to two types of widgets:
+// * widgets that hold information that does not change or widgets
+//   that hold information that is worth updating only when is changed.
+//   These are all the widget tracked with a field in the struct.
+// * a set of widgets to be rendered on the next rendering phase.
+//
 type widgetRegistry struct {
 	ContainerList *appui.ContainersWidget
 	ContainerMenu *appui.ContainerMenuWidget
@@ -34,12 +35,13 @@ type widgetRegistry struct {
 	Stacks        *swarm.StacksWidget
 	StackTasks    *swarm.StacksTasksWidget
 	MessageBar    *ui.ExpiringMessageWidget
-	activeWidgets map[string]termui.Widget
+
 	sync.Mutex
+	activeWidgets map[string]termui.Widget
 }
 
-//NewWidgetRegistry creates the WidgetCatalog
-func newWidgetRegistry(daemon docker.ContainerDaemon) *widgetRegistry {
+//initRegistry creates a widget registry with its widget ready to be used
+func initRegistry(daemon docker.ContainerDaemon) *widgetRegistry {
 	di := appui.NewDockerInfo(daemon)
 	di.SetX(0)
 	di.SetY(1)
@@ -63,11 +65,11 @@ func newWidgetRegistry(daemon docker.ContainerDaemon) *widgetRegistry {
 	}
 
 	refreshOnContainerEvent(w.ContainerList, daemon)
-	refreshOnDockerEvent(docker.ImageSource, w.ImageList)
-	refreshOnDockerEvent(docker.NetworkSource, w.Networks)
-	refreshOnDockerEvent(docker.NodeSource, w.Nodes)
-	refreshOnDockerEvent(docker.ServiceSource, w.ServiceList)
-	refreshOnDockerEvent(docker.ServiceSource, w.Stacks)
+	refreshOnDockerEvent(docker.ImageSource, w.ImageList, Images)
+	refreshOnDockerEvent(docker.NetworkSource, w.Networks, Networks)
+	refreshOnDockerEvent(docker.NodeSource, w.Nodes, Nodes)
+	refreshOnDockerEvent(docker.ServiceSource, w.ServiceList, Services)
+	refreshOnDockerEvent(docker.ServiceSource, w.Stacks, Stacks)
 
 	return &w
 }
@@ -88,39 +90,47 @@ func (wr *widgetRegistry) remove(w termui.Widget) {
 	}
 }
 
-var timeBetweenRefresh = 1000 * time.Millisecond
+var timeBetweenRefresh = 250 * time.Millisecond
 
-func refreshOnDockerEvent(source docker.SourceType, w termui.Widget) {
+func refreshOnDockerEvent(source docker.SourceType, w termui.Widget, view viewMode) {
 	last := time.Now()
+	var lock sync.Mutex
 	docker.GlobalRegistry.Register(
 		source,
 		func(ctx context.Context, m events.Message) error {
-			if time.Since(last) > timeBetweenRefresh {
-				last = time.Now()
-				err := w.Unmount()
-				if err != nil {
-					return err
-				}
-				return refreshScreen()
+			lock.Lock()
+			defer lock.Unlock()
+			if time.Since(last) < timeBetweenRefresh {
+				return nil
 			}
-			return nil
+			last = time.Now()
+			err := w.Unmount()
+			if err != nil {
+				return err
+			}
+			return refreshIfView(view)
 		})
 }
 func refreshOnContainerEvent(w termui.Widget, daemon docker.ContainerDaemon) {
 	last := time.Now()
+	var lock sync.Mutex
 	docker.GlobalRegistry.Register(
 		docker.ContainerSource,
 		func(ctx context.Context, m events.Message) error {
-			if time.Since(last) > timeBetweenRefresh {
-				last = time.Now()
-				daemon.Refresh(func(e error) {
-					err := w.Unmount()
-					if err != nil {
-						return
-					}
-					refreshScreen()
-				})
+			lock.Lock()
+			defer lock.Unlock()
+			if time.Since(last) < timeBetweenRefresh {
+				return nil
 			}
+			last = time.Now()
+			daemon.Refresh(func(e error) {
+				err := w.Unmount()
+				if err != nil {
+					return
+				}
+
+				refreshIfView(Main)
+			})
 			return nil
 		})
 }

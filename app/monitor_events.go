@@ -3,10 +3,11 @@ package app
 import (
 	"errors"
 	"fmt"
+	"strconv"
+
 	"github.com/moncho/dry/appui"
 	"github.com/moncho/dry/ui"
 	termbox "github.com/nsf/termbox-go"
-	"strconv"
 )
 
 type monitorScreenEventHandler struct {
@@ -37,16 +38,16 @@ func (h *monitorScreenEventHandler) handle(event termbox.Event, f func(eventHand
 			widgets.ContainerMenu.ForContainer(id)
 			widgets.ContainerMenu.OnUnmount = func() error {
 				h.screen.Cursor.Reset()
-				h.dry.ViewMode(Monitor)
+				h.dry.changeView(Monitor)
 				f(h)
 				return refreshScreen()
 			}
-			h.dry.ViewMode(ContainerMenu)
+			h.dry.changeView(ContainerMenu)
 			f(viewsToHandlers[ContainerMenu])
 			return refreshScreen()
 		}
 		if err := h.widget.OnEvent(showMenu); err != nil {
-			h.dry.appmessage(err.Error())
+			h.dry.message(err.Error())
 		}
 	}
 	if !handled {
@@ -67,10 +68,10 @@ func (h *monitorScreenEventHandler) handle(event termbox.Event, f func(eventHand
 			widgets.add(prompt)
 			forwarder := newEventForwarder()
 			f(forwarder)
-			h.dry.ViewMode(NoView)
+			h.dry.changeView(NoView)
 			refreshScreen()
 			go func() {
-				defer h.dry.ViewMode(Monitor)
+				defer h.dry.changeView(Monitor)
 				defer f(h)
 				events := ui.EventSource{
 					Events: forwarder.events(),
@@ -86,7 +87,7 @@ func (h *monitorScreenEventHandler) handle(event termbox.Event, f func(eventHand
 				}
 				refreshRate, err := toInt(input)
 				if err != nil {
-					h.dry.appmessage(
+					h.dry.message(
 						fmt.Sprintf("Error setting refresh rate: %s", err.Error()))
 					return
 				}
@@ -95,14 +96,10 @@ func (h *monitorScreenEventHandler) handle(event termbox.Event, f func(eventHand
 		}
 	}
 	if !handled {
-		nh := func(eh eventHandler) {
-			if cancelMonitorWidget != nil {
-				cancelMonitorWidget()
-				cancelMonitorWidget = nil
-			}
+		h.baseEventHandler.handle(event, func(eh eventHandler) {
+			h.widget.Unmount()
 			f(eh)
-		}
-		h.baseEventHandler.handle(event, nh)
+		})
 	}
 }
 
@@ -110,10 +107,10 @@ func toInt(s string) (int, error) {
 	i, err := strconv.Atoi(s)
 
 	if err != nil {
-		return -1, errors.New("Be nice, a number is expected")
+		return -1, errors.New("be nice, a number is expected")
 	}
 	if i < 0 {
-		return -1, errors.New("Negative values are not allowed")
+		return -1, errors.New("negative values are not allowed")
 	}
 	return i, nil
 }

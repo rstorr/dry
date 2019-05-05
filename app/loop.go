@@ -10,25 +10,37 @@ import (
 )
 
 var refreshScreen func() error
+var refreshIfView func(v viewMode) error
 var widgets *widgetRegistry
 
 type nextHandler func(eh eventHandler)
 
-//RenderLoop renders dry until it quits
+//RenderLoop runs dry
 // nolint: gocyclo
-func RenderLoop(dry *Dry, screen *ui.Screen) {
-	if ok, _ := dry.Ok(); !ok {
+func RenderLoop(dry *Dry) {
+	if ok, err := dry.Ok(); !ok {
+		log.Error(err.Error())
 		return
 	}
+	screen := dry.screen
 	termuiEvents, done := ui.EventChannel()
-	//On receive dry is rendered
+
+	//use to signal rendering
 	renderChan := make(chan struct{})
 
 	var closingLock sync.RWMutex
 	refreshScreen = func() error {
 		closingLock.RLock()
 		defer closingLock.RUnlock()
+
 		renderChan <- struct{}{}
+		return nil
+	}
+
+	refreshIfView = func(v viewMode) error {
+		if v == dry.viewMode() {
+			return refreshScreen()
+		}
 		return nil
 	}
 
@@ -75,15 +87,15 @@ loop:
 			//Ctrl+C breaks the loop (and exits dry) no matter what
 			if event.Key == termbox.KeyCtrlC || event.Ch == 'Q' {
 				break loop
-			} else {
-				handler.handle(event, func(eh eventHandler) {
-					handler = eh
-				})
 			}
+			handler.handle(event, func(eh eventHandler) {
+				handler = eh
+			})
+
 		case termbox.EventResize:
 			ui.Resize()
 			//Reload dry ui elements
-			widgets = newWidgetRegistry(dry.dockerDaemon)
+			widgets = initRegistry(dry.dockerDaemon)
 		}
 	}
 

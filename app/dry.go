@@ -2,19 +2,21 @@ package app
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/docker/docker/api/types/events"
-	drydocker "github.com/moncho/dry/docker"
+	docker "github.com/moncho/dry/docker"
 	"github.com/moncho/dry/ui"
 )
 
-//Dry represents the application.
+//Dry resources and state
 type Dry struct {
-	dockerDaemon     drydocker.ContainerDaemon
+	dockerDaemon     docker.ContainerDaemon
 	dockerEvents     <-chan events.Message
 	dockerEventsDone chan<- struct{}
 	output           chan string
+	screen           *ui.Screen
 
 	sync.RWMutex
 	view viewMode
@@ -36,35 +38,46 @@ func (d *Dry) Ok() (bool, error) {
 	return d.dockerDaemon.Ok()
 }
 
-//ViewMode changes the view mode of dry
-func (d *Dry) ViewMode(v viewMode) {
+//changeView changes the active view mode
+func (d *Dry) changeView(v viewMode) {
 	d.Lock()
 	defer d.Unlock()
 
 	d.view = v
 }
 
-func (d *Dry) startDry() {
-	de := dockerEventsListener{d}
-	de.init()
-}
-
-func (d *Dry) appmessage(message string) {
+func (d *Dry) showDockerEvents() {
 	go func() {
-		select {
-		case d.output <- message:
-		default:
+		for event := range d.dockerEvents {
+			//exec_ messages are sent continuously if docker is checking
+			//a container's health, so they are ignored
+			if strings.Contains(event.Action, "exec_") {
+				continue
+			}
+			//top messages are sent continuously on monitor mode, ignored
+			if strings.Contains(event.Action, "top") {
+				continue
+			}
+			d.message(fmt.Sprintf("Docker: %s %s", event.Action, event.ID))
 		}
 	}()
 }
 
+//message publishes the given message
+func (d *Dry) message(message string) {
+	select {
+	case d.output <- message:
+	default:
+	}
+}
+
 func (d *Dry) actionMessage(cid interface{}, action string) {
-	d.appmessage(fmt.Sprintf("<red>%s container with id </><white>%v</>",
+	d.message(fmt.Sprintf("<red>%s container with id </><white>%v</>",
 		action, cid))
 }
 
 func (d *Dry) errorMessage(cid interface{}, action string, err error) {
-	d.appmessage(
+	d.message(
 		fmt.Sprintf(
 			"%s", err.Error()))
 }
@@ -75,29 +88,39 @@ func (d *Dry) viewMode() viewMode {
 	return d.view
 }
 
-func newDry(screen *ui.Screen, d *drydocker.DockerDaemon) (*Dry, error) {
+func newDry(screen *ui.Screen, d *docker.DockerDaemon) (*Dry, error) {
 	dockerEvents, dockerEventsDone, err := d.Events()
 	if err != nil {
 		return nil, err
 	}
 
-	app := &Dry{}
-	widgets = newWidgetRegistry(d)
-	viewsToHandlers = initHandlers(app, screen)
-	app.dockerDaemon = d
-	app.output = make(chan string)
-	app.dockerEvents = dockerEvents
-	app.dockerEventsDone = dockerEventsDone
-	app.startDry()
-	return app, nil
+	dry := &Dry{}
+	widgets = initRegistry(d)
+	viewsToHandlers = initHandlers(dry, screen)
+	dry.dockerDaemon = d
+	dry.output = make(chan string)
+	dry.dockerEvents = dockerEvents
+	dry.dockerEventsDone = dockerEventsDone
+	dry.screen = screen
+	dry.showDockerEvents()
+	return dry, nil
 
 }
 
 //NewDry creates a new dry application
-func NewDry(screen *ui.Screen, env *drydocker.Env) (*Dry, error) {
-	d, err := drydocker.ConnectToDaemon(env)
+func NewDry(screen *ui.Screen, cfg Config) (*Dry, error) {
+
+	d, err := docker.ConnectToDaemon(cfg.dockerEnv())
 	if err != nil {
 		return nil, err
 	}
-	return newDry(screen, d)
+	dry, err := newDry(screen, d)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.MonitorMode {
+		dry.changeView(Monitor)
+		widgets.Monitor.RefreshRate(cfg.MonitorRefreshRate)
+	}
+	return dry, nil
 }
